@@ -24,7 +24,9 @@ const createBookmark = async (bookmark) => {
       updated_at: timestamp(),
     };
     // await db.collection(constants.BOOKMARKS_COLLECTION).doc(bookmark.group_id).set(newBookmark);
-    const docRef = db.collection(constants.BOOKMARKS_COLLECTION).doc(bookmark.group_id);
+    const docRef = db
+      .collection(constants.BOOKMARKS_COLLECTION)
+      .doc(bookmark.group_id);
     await docRef.update({
       bookmarks: FieldValue.arrayUnion(newBookmark),
     });
@@ -42,7 +44,9 @@ const updateBookmark = async (bookmark) => {
       updated_at: timestamp(),
     };
     // await db.collection(constants.BOOKMARKS_COLLECTION).doc(bookmark.group_id).set(newBookmark);
-    const docRef = db.collection(constants.BOOKMARKS_COLLECTION).doc(bookmark.group_id);
+    const docRef = db
+      .collection(constants.BOOKMARKS_COLLECTION)
+      .doc(bookmark.group_id);
 
     // 1. Fetch the document to get the current bookmarks array
     const docSnapshot = await docRef.get();
@@ -61,6 +65,44 @@ const updateBookmark = async (bookmark) => {
     const updatedBookmarks = [
       ...currentBookmarks.slice(0, bookmarkIndex),
       { ...currentBookmarks[bookmarkIndex], ...newBookmark },
+      ...currentBookmarks.slice(bookmarkIndex + 1),
+    ];
+
+    await docRef.update({ bookmarks: updatedBookmarks });
+  } catch (error) {
+    throw new Error(`[FIREBASE_ERROR]:${error.toString()}`);
+  }
+};
+
+const deleteBookmark = async (bookmark) => {
+  try {
+    const updates = {
+      deleted: true,
+      updated_at: timestamp(),
+      deleted_at: timestamp(),
+    };
+    // await db.collection(constants.BOOKMARKS_COLLECTION).doc(bookmark.group_id).set(newBookmark);
+    const docRef = db
+      .collection(constants.BOOKMARKS_COLLECTION)
+      .doc(bookmark.group_id);
+
+    // 1. Fetch the document to get the current bookmarks array
+    const docSnapshot = await docRef.get();
+    const currentBookmarks = docSnapshot.data().bookmarks;
+
+    // 2. Find the index of the bookmark to update
+    const bookmarkIndex = currentBookmarks.findIndex(
+      (existingBookmark) => existingBookmark.id === bookmark.id
+    );
+
+    if (bookmarkIndex === -1) {
+      throw `Invalid bookmark id : ${bookmark.id} or can't find the bookmark`;
+    }
+
+    // 3. Create a new bookmarks array with the updated bookmark
+    const updatedBookmarks = [
+      ...currentBookmarks.slice(0, bookmarkIndex),
+      { ...currentBookmarks[bookmarkIndex], ...updates },
       ...currentBookmarks.slice(bookmarkIndex + 1),
     ];
 
@@ -119,6 +161,7 @@ const createGroup = async (name) => {
 module.exports = {
   createBookmark,
   updateBookmark,
+  deleteBookmark,
   getBookmarks,
   createGroup,
   initFirebase,
