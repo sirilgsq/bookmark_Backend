@@ -9,7 +9,6 @@ const { status, constants } = require("../utils/constants");
 const router = express.Router();
 
 router.post("/", async (req, res) => {
-  console.log(req.body, "req.body");
   try {
     let { name = "", link = "", group_id = "" } = req.body;
 

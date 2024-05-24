@@ -116,7 +116,9 @@ const getBookmarks = async () => {
   try {
     const docRef = db.collection(constants.BOOKMARKS_COLLECTION);
 
-    const queryRef = docRef.where("deleted", "==", false);
+    const queryRef = docRef
+      .where("deleted", "==", false)
+      .orderBy("created_at", "desc");
 
     const docSnapshot = await queryRef.get();
 
@@ -158,11 +160,28 @@ const createGroup = async (name) => {
   }
 };
 
+const updateGroup = async (group) => {
+  try {
+    const updatedGroup = {
+      name: group.name,
+      updated_at: timestamp(),
+    };
+    const docRef = db
+      .collection(constants.BOOKMARKS_COLLECTION)
+      .doc(group.group_id);
+
+    await docRef.update(updatedGroup);
+  } catch (error) {
+    throw new Error(`[FIREBASE_ERROR]:${error.toString()}`);
+  }
+};
+
 module.exports = {
   createBookmark,
   updateBookmark,
   deleteBookmark,
   getBookmarks,
   createGroup,
+  updateGroup,
   initFirebase,
 };
