@@ -4,6 +4,7 @@ const {
   updateBookmark,
   getBookmarks,
   deleteBookmark,
+  moveBookmark,
 } = require("../utils/firebase");
 const { status, constants } = require("../utils/constants");
 const router = express.Router();
@@ -57,6 +58,28 @@ router.put("/", async (req, res) => {
       res.json({
         status: status.REQUIRED_FIELDS,
         message: constants.ALL_FIELDS_REQUIRED,
+      });
+    }
+  } catch (error) {
+    res.json({ status: status.ERROR, error: error.toString() });
+  }
+});
+
+router.patch("/", async (req, res) => {
+  try {
+    let { fromGroupId, toGroupId, bookmarkId, position } = req.query;
+
+    fromGroupId = fromGroupId.toString().trim();
+    toGroupId = toGroupId.toString().trim();
+    bookmarkId = bookmarkId.toString().trim();
+    position = parseInt(position, 10);
+    if (fromGroupId && toGroupId && bookmarkId && !isNaN(position)) {
+      await moveBookmark(fromGroupId, toGroupId, bookmarkId, position);
+      res.json({ status: status.SUCCESS });
+    } else {
+      res.json({
+        status: status.REQUIRED_FIELDS,
+        message: constants.ALL_FIELDS_REQUIRED_AND_POSITION_NUMBER,
       });
     }
   } catch (error) {

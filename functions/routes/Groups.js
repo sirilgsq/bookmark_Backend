@@ -31,7 +31,7 @@ router.put("/", async (req, res) => {
     group_id = group_id.toString().trim();
 
     if (name !== "" && group_id !== "") {
-      group = {
+      const group = {
         name,
         group_id,
       };

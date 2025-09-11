@@ -6,6 +6,7 @@ let db;
 
 let bookmarksCollection;
 
+
 const initFirebase = () => {
   admin.initializeApp();
   db = admin.firestore();
@@ -24,9 +25,7 @@ const createBookmark = async (bookmark) => {
       updated_at: timestamp(),
     };
     // await db.collection(constants.BOOKMARKS_COLLECTION).doc(bookmark.group_id).set(newBookmark);
-    const docRef = db
-      .collection(constants.BOOKMARKS_COLLECTION)
-      .doc(bookmark.group_id);
+    const docRef = bookmarksCollection.doc(bookmark.group_id);
     await docRef.update({
       bookmarks: FieldValue.arrayUnion(newBookmark),
     });
@@ -44,9 +43,7 @@ const updateBookmark = async (bookmark) => {
       updated_at: timestamp(),
     };
     // await db.collection(constants.BOOKMARKS_COLLECTION).doc(bookmark.group_id).set(newBookmark);
-    const docRef = db
-      .collection(constants.BOOKMARKS_COLLECTION)
-      .doc(bookmark.group_id);
+    const docRef = bookmarksCollection.doc(bookmark.group_id);
 
     // 1. Fetch the document to get the current bookmarks array
     const docSnapshot = await docRef.get();
@@ -82,9 +79,7 @@ const deleteBookmark = async (bookmark) => {
       deleted_at: timestamp(),
     };
     // await db.collection(constants.BOOKMARKS_COLLECTION).doc(bookmark.group_id).set(newBookmark);
-    const docRef = db
-      .collection(constants.BOOKMARKS_COLLECTION)
-      .doc(bookmark.group_id);
+    const docRef = bookmarksCollection.doc(bookmark.group_id);
 
     // 1. Fetch the document to get the current bookmarks array
     const docSnapshot = await docRef.get();
@@ -114,9 +109,7 @@ const deleteBookmark = async (bookmark) => {
 
 const getBookmarks = async () => {
   try {
-    const docRef = db.collection(constants.BOOKMARKS_COLLECTION);
-
-    const queryRef = docRef
+    const queryRef = bookmarksCollection
       .where("deleted", "==", false)
       .orderBy("created_at", "desc");
 
@@ -142,6 +135,65 @@ const getBookmarks = async () => {
   }
 };
 
+const moveBookmark = async (fromGroupId, toGroupId, bookmarkId, position) => {
+  try {
+    const fromDocRef = bookmarksCollection.doc(fromGroupId);
+    const toDocRef = bookmarksCollection.doc(toGroupId);
+
+    // Fetch the documents for both groups
+    const fromDoc = await fromDocRef.get();
+    const toDoc = await toDocRef.get();
+
+    if (!fromDoc.exists || !toDoc.exists) {
+      throw constants.BOOKMARK_NOT_EXIST;
+    }
+
+    const fromGroupData = fromDoc.data();
+    let toGroupData = toDoc.data();
+
+    const deletedToGroupData = toGroupData.bookmarks.filter(
+      (bookmark) => bookmark.deleted
+    );
+
+    toGroupData.bookmarks = toGroupData.bookmarks.filter(
+      (bookmark) => !bookmark.deleted
+    );
+
+    // Find the bookmark in the fromGroup
+    const bookmarkIndex = fromGroupData.bookmarks.findIndex(
+      (bm) => bm.id === bookmarkId
+    );
+    if (bookmarkIndex === -1) {
+      throw constants.BOOKMARK_NOT_FOUND;
+    }
+
+    // Remove the bookmark from the fromGroup
+    const [bookmark] = fromGroupData.bookmarks.splice(bookmarkIndex, 1);
+    bookmark.updated_at = timestamp();
+
+    if (fromGroupId !== toGroupId) {
+      // Only perform these operations if fromGroupId and toGroupId are different
+      // Insert the bookmark into the toGroup at the specified position
+      toGroupData.bookmarks.splice(position, 0, bookmark);
+      // Update the Firestore
+      await fromDocRef.update({ bookmarks: fromGroupData.bookmarks });
+      await toDocRef.update({
+        bookmarks: [...toGroupData.bookmarks, ...deletedToGroupData],
+      });
+    } else {
+      toGroupData.bookmarks.splice(bookmarkIndex, 1);
+      // If fromGroupId and toGroupId are the same, update the position in the same group
+      toGroupData.bookmarks.splice(position, 0, bookmark);
+      // Update the Firestore for the same group
+      await toDocRef.update({
+        bookmarks: [...toGroupData.bookmarks, ...deletedToGroupData],
+      });
+    }
+  } catch (error) {
+    throw new Error(`[FIREBASE_ERROR]: ${error.toString()}`);
+  }
+};
+
 const createGroup = async (name) => {
   try {
     const id = `GZIMD_${Date.now()}`;
@@ -154,7 +206,7 @@ const createGroup = async (name) => {
       updated_at: timestamp(),
       deleted_at: null,
     };
-    await db.collection(constants.BOOKMARKS_COLLECTION).doc(id).set(newGroup);
+    await bookmarksCollection.doc(id).set(newGroup);
   } catch (error) {
     throw ("firebase error", error);
   }
@@ -166,9 +218,7 @@ const updateGroup = async (group) => {
       name: group.name,
       updated_at: timestamp(),
     };
-    const docRef = db
-      .collection(constants.BOOKMARKS_COLLECTION)
-      .doc(group.group_id);
+    const docRef = bookmarksCollection.doc(group.group_id);
 
     await docRef.update(updatedGroup);
   } catch (error) {
@@ -181,6 +231,7 @@ module.exports = {
   updateBookmark,
   deleteBookmark,
   getBookmarks,
+  moveBookmark,
   createGroup,
   updateGroup,
   initFirebase,
