@@ -6,6 +6,7 @@ const cors = require("cors");
 const BookmarksRoute = require("./routes/Bookmarks");
 const GroupsRoute = require("./routes/Groups");
 const HelloWorldRoute = require("./routes/HelloWorld");
+const AuthRoute = require("./routes/Auth");
 const { status } = require("./utils/constants");
 
 const corsOptions = {
@@ -35,5 +36,6 @@ app.use(express.json());
 app.use("/bookmarks", BookmarksRoute);
 app.use("/groups", GroupsRoute);
 app.use("/helloworld", HelloWorldRoute);
+app.use("/auth", AuthRoute);
 
 exports.api = onRequest(app);

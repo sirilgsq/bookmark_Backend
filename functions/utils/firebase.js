@@ -8,7 +8,10 @@ let bookmarksCollection;
 
 
 const initFirebase = () => {
-  admin.initializeApp();
+  // Check if Firebase is already initialized
+  if (!admin.apps.length) {
+    admin.initializeApp();
+  }
   db = admin.firestore();
   bookmarksCollection = db.collection(constants.BOOKMARKS_COLLECTION);
 };
