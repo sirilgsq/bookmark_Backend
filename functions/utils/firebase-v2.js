@@ -143,20 +143,73 @@ const createBookmarkV2 = async (userId, groupId, bookmarkData) => {
 /**
  * Update a bookmark for a user
  */
-const updateBookmarkV2 = async (userId, groupId, bookmarkId, bookmarkData) => {
+const updateBookmarkV2 = async (userId, newGroupId, bookmarkId, bookmarkData) => {
   try {
     // Ensure Firebase is initialized
     initFirebaseV2();
+    
     const updatedBookmark = {
       title: bookmarkData.title,
       url: bookmarkData.url,
       updatedAt: timestamp(),
     };
 
-    const bookmarkRef = getUserBookmarkItemsCollection(userId, groupId).doc(bookmarkId);
-    await bookmarkRef.update(updatedBookmark);
-
-    return { success: true };
+    // First, find the bookmark in any group
+    const groups = await getGroupsV2(userId);
+    let foundBookmark = null;
+    let currentGroupId = null;
+    
+    for (const group of groups) {
+      const searchBookmarkRef = getUserBookmarkItemsCollection(userId, group.groupId).doc(bookmarkId);
+      const searchBookmarkDoc = await searchBookmarkRef.get();
+      
+      if (searchBookmarkDoc.exists) {
+        foundBookmark = searchBookmarkDoc.data();
+        currentGroupId = group.groupId;
+        break;
+      }
+    }
+    
+    if (!foundBookmark) {
+      throw new Error(`Bookmark with ID ${bookmarkId} not found in any group`);
+    }
+    
+    // Check if we need to move the bookmark to a different group
+    if (currentGroupId === newGroupId) {
+      // Same group, just update the bookmark
+      const bookmarkRef = getUserBookmarkItemsCollection(userId, newGroupId).doc(bookmarkId);
+      await bookmarkRef.update(updatedBookmark);
+      return { 
+        success: true, 
+        message: "Bookmark updated in same group"
+      };
+    } else {
+      // Different group, move the bookmark
+      // 1. Create bookmark in new group with updated data
+      const newBookmarkRef = getUserBookmarkItemsCollection(userId, newGroupId).doc(bookmarkId);
+      const newBookmarkData = {
+        ...foundBookmark,
+        ...updatedBookmark,
+        updatedAt: timestamp(),
+      };
+      await newBookmarkRef.set(newBookmarkData);
+      
+      // 2. Delete bookmark from old group
+      const oldBookmarkRef = getUserBookmarkItemsCollection(userId, currentGroupId).doc(bookmarkId);
+      await oldBookmarkRef.delete();
+      
+      // 3. Get group names for response
+      const currentGroup = groups.find(g => g.groupId === currentGroupId);
+      const newGroup = groups.find(g => g.groupId === newGroupId);
+      
+      return { 
+        success: true, 
+        message: `Bookmark moved from "${currentGroup?.groupName}" to "${newGroup?.groupName}"`,
+        moved: true,
+        fromGroupId: currentGroupId,
+        toGroupId: newGroupId
+      };
+    }
   } catch (error) {
     throw new Error(`[FIREBASE_ERROR]: ${error.toString()}`);
   }
@@ -169,16 +222,43 @@ const deleteBookmarkV2 = async (userId, groupId, bookmarkId) => {
   try {
     // Ensure Firebase is initialized
     initFirebaseV2();
+    
     const updates = {
       deleted: true,
       updatedAt: timestamp(),
       deletedAt: timestamp(),
     };
 
+    // First, try to delete in the specified group
     const bookmarkRef = getUserBookmarkItemsCollection(userId, groupId).doc(bookmarkId);
-    await bookmarkRef.update(updates);
-
-    return { success: true };
+    const bookmarkDoc = await bookmarkRef.get();
+    
+    if (bookmarkDoc.exists) {
+      // Bookmark exists in the specified group, delete it
+      await bookmarkRef.update(updates);
+      return { success: true };
+    } else {
+      // Bookmark not found in specified group, search across all groups
+      const groups = await getGroupsV2(userId);
+      
+      for (const group of groups) {
+        const searchBookmarkRef = getUserBookmarkItemsCollection(userId, group.groupId).doc(bookmarkId);
+        const searchBookmarkDoc = await searchBookmarkRef.get();
+        
+        if (searchBookmarkDoc.exists) {
+          // Found the bookmark in this group, delete it
+          await searchBookmarkRef.update(updates);
+          return { 
+            success: true, 
+            message: `Bookmark deleted from group: ${group.groupName}`,
+            actualGroupId: group.groupId
+          };
+        }
+      }
+      
+      // Bookmark not found in any group
+      throw new Error(`Bookmark with ID ${bookmarkId} not found in any group`);
+    }
   } catch (error) {
     throw new Error(`[FIREBASE_ERROR]: ${error.toString()}`);
   }
