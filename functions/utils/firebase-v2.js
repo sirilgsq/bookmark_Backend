@@ -120,11 +120,18 @@ const createBookmarkV2 = async (userId, groupId, bookmarkData) => {
   try {
     // Ensure Firebase is initialized
     initFirebaseV2();
+    
     const bookmarkId = `BZIMD_${Date.now()}`;
+    
+    // Get current bookmarks count to set position
+    const existingBookmarks = await getBookmarksV2(userId, groupId);
+    const position = existingBookmarks.length; // Position will be the next available index
+    
     const newBookmark = {
       bookmarkId,
       title: bookmarkData.title,
       url: bookmarkData.url,
+      position: position,
       createdAt: timestamp(),
       updatedAt: timestamp(),
       deleted: false,
@@ -288,11 +295,23 @@ const getBookmarksV2 = async (userId, groupId) => {
       }
     });
 
-    // Sort by createdAt in code
+    // Sort by position first, then by createdAt
     bookmarks.sort((a, b) => {
+      // If both have position, sort by position
+      if (a.position !== undefined && b.position !== undefined) {
+        return a.position - b.position; // Ascending order by position
+      }
+      // If only one has position, prioritize it
+      if (a.position !== undefined && b.position === undefined) {
+        return -1;
+      }
+      if (a.position === undefined && b.position !== undefined) {
+        return 1;
+      }
+      // If neither has position, sort by createdAt
       const dateA = new Date(a.createdAt);
       const dateB = new Date(b.createdAt);
-      return dateB - dateA; // Descending order
+      return dateB - dateA; // Descending order by date
     });
 
     return bookmarks;
@@ -348,6 +367,7 @@ const moveBookmarkV2 = async (userId, fromGroupId, toGroupId, bookmarkId, positi
   try {
     // Ensure Firebase is initialized
     initFirebaseV2();
+    
     // Get the bookmark from source group
     const sourceBookmarkRef = getUserBookmarkItemsCollection(userId, fromGroupId).doc(bookmarkId);
     const sourceBookmarkDoc = await sourceBookmarkRef.get();
@@ -357,24 +377,90 @@ const moveBookmarkV2 = async (userId, fromGroupId, toGroupId, bookmarkId, positi
     }
 
     const bookmarkData = sourceBookmarkDoc.data();
+    const targetPosition = parseInt(position, 10);
 
     if (fromGroupId === toGroupId) {
-      // Moving within the same group - just update the position
-      // Note: Firestore doesn't have built-in ordering, so we might need to add a position field
-      bookmarkData.updatedAt = timestamp();
-      await sourceBookmarkRef.update(bookmarkData);
+      // Moving within the same group - reorder positions
+      const allBookmarks = await getBookmarksV2(userId, fromGroupId);
+      const currentIndex = allBookmarks.findIndex(b => b.id === bookmarkId);
+      
+      if (currentIndex === -1) {
+        throw new Error("Bookmark not found in group");
+      }
+
+      // Remove the bookmark from its current position
+      const [movedBookmark] = allBookmarks.splice(currentIndex, 1);
+      
+      // Insert at new position
+      allBookmarks.splice(targetPosition, 0, movedBookmark);
+      
+      // Update positions for all bookmarks
+      const batch = db.batch();
+      for (let i = 0; i < allBookmarks.length; i++) {
+        const bookmarkRef = getUserBookmarkItemsCollection(userId, fromGroupId).doc(allBookmarks[i].id);
+        batch.update(bookmarkRef, {
+          position: i,
+          updatedAt: timestamp()
+        });
+      }
+      await batch.commit();
+      
+      return { 
+        success: true, 
+        message: `Bookmark position updated to ${targetPosition} in same group`
+      };
     } else {
       // Moving to a different group
-      // 1. Create bookmark in destination group
-      const destBookmarkRef = getUserBookmarkItemsCollection(userId, toGroupId).doc(bookmarkId);
-      bookmarkData.updatedAt = timestamp();
-      await destBookmarkRef.set(bookmarkData);
-
-      // 2. Delete from source group
-      await deleteBookmarkV2(userId, fromGroupId, bookmarkId);
+      // 1. Get all bookmarks from destination group
+      const destBookmarks = await getBookmarksV2(userId, toGroupId);
+      
+      // 2. Insert bookmark at target position
+      destBookmarks.splice(targetPosition, 0, {
+        ...bookmarkData,
+        position: targetPosition,
+        updatedAt: timestamp()
+      });
+      
+      // 3. Update positions for all bookmarks in destination group
+      const batch = db.batch();
+      for (let i = 0; i < destBookmarks.length; i++) {
+        const bookmarkRef = getUserBookmarkItemsCollection(userId, toGroupId).doc(destBookmarks[i].id);
+        if (destBookmarks[i].id === bookmarkId) {
+          // Create new bookmark in destination group
+          batch.set(bookmarkRef, {
+            ...destBookmarks[i],
+            position: i,
+            updatedAt: timestamp()
+          });
+        } else {
+          // Update existing bookmark position
+          batch.update(bookmarkRef, {
+            position: i,
+            updatedAt: timestamp()
+          });
+        }
+      }
+      
+      // 4. Delete from source group
+      await sourceBookmarkRef.delete();
+      
+      // 5. Commit all changes
+      await batch.commit();
+      
+      // 6. Get group names for response
+      const groups = await getGroupsV2(userId);
+      const fromGroup = groups.find(g => g.groupId === fromGroupId);
+      const toGroup = groups.find(g => g.groupId === toGroupId);
+      
+      return { 
+        success: true, 
+        message: `Bookmark moved from "${fromGroup?.groupName}" to "${toGroup?.groupName}" at position ${targetPosition}`,
+        moved: true,
+        fromGroupId,
+        toGroupId,
+        position: targetPosition
+      };
     }
-
-    return { success: true };
   } catch (error) {
     throw new Error(`[FIREBASE_ERROR]: ${error.toString()}`);
   }
