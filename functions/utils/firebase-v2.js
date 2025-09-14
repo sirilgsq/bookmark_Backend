@@ -127,10 +127,15 @@ const createBookmarkV2 = async (userId, groupId, bookmarkData) => {
     const existingBookmarks = await getBookmarksV2(userId, groupId);
     const position = existingBookmarks.length; // Position will be the next available index
     
+    // Scrape favicon from the URL
+    const { getFaviconWithFallback } = require('./favicon');
+    const favicon = await getFaviconWithFallback(bookmarkData.url);
+    
     const newBookmark = {
       bookmarkId,
       title: bookmarkData.title,
       url: bookmarkData.url,
+      favicon: favicon,
       position: position,
       createdAt: timestamp(),
       updatedAt: timestamp(),
@@ -155,12 +160,6 @@ const updateBookmarkV2 = async (userId, newGroupId, bookmarkId, bookmarkData) =>
     // Ensure Firebase is initialized
     initFirebaseV2();
     
-    const updatedBookmark = {
-      title: bookmarkData.title,
-      url: bookmarkData.url,
-      updatedAt: timestamp(),
-    };
-
     // First, find the bookmark in any group
     const groups = await getGroupsV2(userId);
     let foundBookmark = null;
@@ -179,6 +178,22 @@ const updateBookmarkV2 = async (userId, newGroupId, bookmarkId, bookmarkData) =>
     
     if (!foundBookmark) {
       throw new Error(`Bookmark with ID ${bookmarkId} not found in any group`);
+    }
+    
+    // Check if URL has changed to determine if we need to scrape favicon
+    const urlChanged = foundBookmark.url !== bookmarkData.url;
+    
+    const updatedBookmark = {
+      title: bookmarkData.title,
+      url: bookmarkData.url,
+      updatedAt: timestamp(),
+    };
+
+    // If URL changed, scrape new favicon
+    if (urlChanged) {
+      const { getFaviconWithFallback } = require('./favicon');
+      const favicon = await getFaviconWithFallback(bookmarkData.url);
+      updatedBookmark.favicon = favicon;
     }
     
     // Check if we need to move the bookmark to a different group

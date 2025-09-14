@@ -9,6 +9,7 @@ const {
 } = require("../utils/firebase-v2");
 const { status, constants } = require("../utils/constants");
 const { authenticateToken } = require("../middleware/auth");
+const { getFaviconWithFallback } = require("../utils/favicon");
 const router = express.Router();
 
 // Apply authentication middleware to all bookmark routes
@@ -213,6 +214,38 @@ router.delete("/", async (req, res) => {
         message: "Group ID (or g_id) and Bookmark ID (or id) are required!",
       });
     }
+  } catch (error) {
+    res.json({
+      success: false,
+      status: status.ERROR,
+      error: error.toString(),
+    });
+  }
+});
+
+// GET /bookmarks/favicon - Get favicon for a URL
+router.get("/favicon", async (req, res) => {
+  try {
+    const { url } = req.query;
+    
+    if (!url) {
+      return res.json({
+        success: false,
+        status: status.REQUIRED_FIELDS,
+        message: "URL parameter is required!",
+      });
+    }
+
+    const favicon = await getFaviconWithFallback(url);
+    
+    res.json({
+      success: true,
+      status: status.SUCCESS,
+      data: {
+        url: url,
+        favicon: favicon
+      }
+    });
   } catch (error) {
     res.json({
       success: false,
